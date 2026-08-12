@@ -64,6 +64,22 @@ namespace PowerTray
             set { SetBool("CheckForUpdates", value); }
         }
 
+        // Defaults to Auto: matching the desktop is what people expect, and the
+        // override exists for the minority who want the app to disagree with it.
+        public static ThemeMode Theme
+        {
+            get
+            {
+                switch (GetString("Theme", "Auto"))
+                {
+                    case "Light": return ThemeMode.Light;
+                    case "Dark": return ThemeMode.Dark;
+                    default: return ThemeMode.Auto;
+                }
+            }
+            set { SetString("Theme", value.ToString()); }
+        }
+
         public static DateTime LastUpdateCheck
         {
             get

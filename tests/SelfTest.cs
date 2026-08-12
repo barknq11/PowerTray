@@ -14,6 +14,54 @@ namespace PowerTray
     {
         static int failures;
 
+        // Renders the real GDI+ tray icon at native size, magnified with nearest-
+        // neighbour so individual pixels are visible, over both taskbar colours.
+        static void DumpTrayPreview()
+        {
+            var colors = new System.Drawing.Color[]
+            {
+                System.Drawing.Color.FromArgb(64, 158, 255), System.Drawing.Color.FromArgb(255, 88, 100),
+                System.Drawing.Color.FromArgb(61, 214, 140), System.Drawing.Color.FromArgb(203, 128, 255)
+            };
+
+            const int zoom = 6;
+            using (var probe = TrayIcons.For(colors[0]).ToBitmap())
+            {
+                int n = probe.Width;
+                int cell = n * zoom;
+                int pad = 10;
+                int w = pad + colors.Length * (cell + pad);
+                int h = pad + 2 * (cell + pad);
+
+                using (var sheet = new System.Drawing.Bitmap(w, h))
+                using (var g = System.Drawing.Graphics.FromImage(sheet))
+                {
+                    g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.NearestNeighbor;
+                    g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.Half;
+
+                    using (var dark = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(32, 32, 32)))
+                        g.FillRectangle(dark, 0, 0, w, pad + cell + pad / 2);
+                    using (var light = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(243, 243, 243)))
+                        g.FillRectangle(light, 0, pad + cell + pad / 2, w, h);
+
+                    for (int i = 0; i < colors.Length; i++)
+                    {
+                        using (var bmp = TrayIcons.For(colors[i]).ToBitmap())
+                        {
+                            int x = pad + i * (cell + pad);
+                            g.DrawImage(bmp, x, pad, cell, cell);
+                            g.DrawImage(bmp, x, pad + cell + pad, cell, cell);
+                        }
+                    }
+
+                    string path = System.IO.Path.Combine(
+                        System.IO.Directory.GetCurrentDirectory(), "preview-tray.png");
+                    sheet.Save(path, System.Drawing.Imaging.ImageFormat.Png);
+                    Console.WriteLine("         wrote " + path + "  (" + n + "px native, " + zoom + "x zoom)");
+                }
+            }
+        }
+
         static void Check(string label, bool ok, string detail)
         {
             Console.WriteLine((ok ? "  PASS  " : "  FAIL  ") + label + (detail == null ? "" : "  ->  " + detail));
@@ -78,6 +126,28 @@ namespace PowerTray
             Check("prerelease suffix trimmed", !Updater.IsNewer("2.0.0-beta", "2.0.0"), null);
             Check("garbage is not newer", !Updater.IsNewer("not-a-version", "2.0.0"), null);
 
+            Console.WriteLine("-- theme --");
+            ThemeMode saved = Config.Theme;
+            Config.Theme = ThemeMode.Light;
+            Check("light override wins", !Theme.Dark, null);
+            Config.Theme = ThemeMode.Dark;
+            Check("dark override wins", Theme.Dark, null);
+            Config.Theme = ThemeMode.Auto;
+            Check("auto follows Windows", Theme.Dark == Theme.SystemPrefersDark(),
+                  "system dark = " + Theme.SystemPrefersDark());
+            Config.Theme = saved;
+            Check("ui font is not the 1998 default", Theme.UiFont.Name != "Microsoft Sans Serif",
+                  Theme.UiFont.Name + " " + Theme.UiFont.Size + "pt");
+            Check("dark and light text differ", Theme.Text != Theme.SubText, null);
+
+            Console.WriteLine("-- tray icon --");
+            var probe = TrayIcons.For(System.Drawing.Color.Crimson);
+            Check("icon renders", probe != null && probe.Width >= 16,
+                  probe == null ? "null" : probe.Width + "x" + probe.Height);
+            Check("cache returns the same instance",
+                  object.ReferenceEquals(probe, TrayIcons.For(System.Drawing.Color.Crimson)), null);
+            DumpTrayPreview();
+
             Console.WriteLine("-- settings window --");
             try
             {
@@ -85,6 +155,7 @@ namespace PowerTray
                 bool autostart = false;
                 using (var form = new SettingsForm(
                     Power.GetSchemes,
+                    delegate(PowerTarget t) { },
                     delegate { return autostart; },
                     delegate(bool v) { autostart = v; },
                     delegate { }))

@@ -9,14 +9,14 @@ using Microsoft.Win32;
 [assembly: AssemblyTitle("PowerTray")]
 [assembly: AssemblyDescription("Switch Windows power plans from the system tray")]
 [assembly: AssemblyProduct("PowerTray")]
-[assembly: AssemblyVersion("2.0.0.0")]
-[assembly: AssemblyFileVersion("2.0.0.0")]
+[assembly: AssemblyVersion("2.1.0.0")]
+[assembly: AssemblyFileVersion("2.1.0.0")]
 
 namespace PowerTray
 {
     static class Program
     {
-        public const string Version = "2.0.0";
+        public const string Version = "2.1.0";
 
         [STAThread]
         static void Main()
@@ -29,6 +29,10 @@ namespace PowerTray
                 if (!isFirstInstance) return;
 
                 Application.EnableVisualStyles();
+                // The other half of the standard WinForms startup pair. Without it,
+                // controls fall back to the older GDI+ text path and render noticeably
+                // worse than every native window next to them.
+                Application.SetCompatibleTextRenderingDefault(false);
                 Application.Run(new TrayApp());
                 GC.KeepAlive(mutex);
             }
@@ -41,7 +45,6 @@ namespace PowerTray
         readonly ContextMenuStrip menu;
         readonly HotkeyManager hotkeys = new HotkeyManager();
         readonly Timer poll;
-        readonly Dictionary<Color, Icon> iconCache = new Dictionary<Color, Icon>();
 
         string lastIndicatorKey;
         string announcedThisSession;
@@ -50,6 +53,11 @@ namespace PowerTray
         {
             menu = new ContextMenuStrip();
             menu.Opening += (s, e) => BuildMenu();
+            ApplyMenuTheme();
+
+            // Fires when the user flips Windows between light and dark, among other
+            // preference changes. In Auto mode the whole app has to follow.
+            SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
 
             icon = new NotifyIcon
             {
@@ -153,10 +161,35 @@ namespace PowerTray
             PowerTarget active = Power.GetActiveIndicator();
             if (active == null) return;
 
-            icon.Icon = GetIcon(ColorFor(active));
+            icon.Icon = TrayIcons.For(ColorFor(active));
 
             string tip = "PowerTray - " + active.Name;
             icon.Text = tip.Length > 62 ? tip.Substring(0, 62) : tip;
+        }
+
+        void ApplyMenuTheme()
+        {
+            menu.Font = Theme.UiFont;
+            menu.Renderer = Theme.MenuRenderer();
+            menu.BackColor = Theme.Surface;
+            menu.ForeColor = Theme.Text;
+        }
+
+        void OnUserPreferenceChanged(object sender, UserPreferenceChangedEventArgs e)
+        {
+            if (e.Category != UserPreferenceCategory.General &&
+                e.Category != UserPreferenceCategory.Color &&
+                e.Category != UserPreferenceCategory.VisualStyle) return;
+
+            RefreshTheme();
+        }
+
+        public void RefreshTheme()
+        {
+            ApplyMenuTheme();
+            TrayIcons.Invalidate();      // the hairline colour is baked into each bitmap
+            lastIndicatorKey = null;     // force the icon to be redrawn
+            UpdateIcon();
         }
 
         void PumpUpdateNotice()
@@ -175,58 +208,32 @@ namespace PowerTray
                 ToolTipIcon.Info);
         }
 
+        // Brighter than the obvious named colours. These sit on a dark tile inside a
+        // 16px square, where SeaGreen and Crimson go muddy and stop being tellable
+        // apart at a glance - which is the only job this icon has.
+        static readonly Color AccentBlue = Color.FromArgb(64, 158, 255);
+        static readonly Color AccentRed = Color.FromArgb(255, 88, 100);
+        static readonly Color AccentGreen = Color.FromArgb(61, 214, 140);
+        static readonly Color AccentViolet = Color.FromArgb(203, 128, 255);
+
         static Color ColorFor(PowerTarget target)
         {
             if (target.Kind == TargetKind.Overlay)
             {
-                if (target.Id == Power.OverlayBestEfficiency) return Color.SeaGreen;
-                if (target.Id == Power.OverlayBestPerformance) return Color.Crimson;
-                return Color.DodgerBlue;
+                if (target.Id == Power.OverlayBestEfficiency) return AccentGreen;
+                if (target.Id == Power.OverlayBestPerformance) return AccentRed;
+                return AccentBlue;
             }
 
-            if (target.Id == Power.Balanced) return Color.DodgerBlue;
-            if (target.Id == Power.HighPerformance) return Color.Crimson;
-            if (target.Id == Power.PowerSaver) return Color.SeaGreen;
-            if (target.Id == Power.UltimatePerformance) return Color.MediumOrchid;
+            if (target.Id == Power.Balanced) return AccentBlue;
+            if (target.Id == Power.HighPerformance) return AccentRed;
+            if (target.Id == Power.PowerSaver) return AccentGreen;
+            if (target.Id == Power.UltimatePerformance) return AccentViolet;
 
+            // Custom plans get a hashed colour, floored well above mid-grey so it stays
+            // readable against the tile rather than disappearing into it.
             var rand = new Random(target.Id.GetHashCode());
-            return Color.FromArgb(rand.Next(80, 220), rand.Next(80, 220), rand.Next(80, 220));
-        }
-
-        [DllImport("user32.dll")]
-        static extern bool DestroyIcon(IntPtr hIcon);
-
-        Icon GetIcon(Color color)
-        {
-            Icon cached;
-            if (iconCache.TryGetValue(color, out cached)) return cached;
-
-            using (var bmp = new Bitmap(16, 16))
-            {
-                using (var g = Graphics.FromImage(bmp))
-                {
-                    g.Clear(Color.Transparent);
-                    using (var brush = new SolidBrush(color))
-                        g.FillEllipse(brush, 1, 1, 14, 14);
-                    using (var pen = new Pen(Color.Black))
-                        g.DrawEllipse(pen, 1, 1, 13, 13);
-                }
-
-                // Icon.FromHandle does not take ownership of the GDI handle, so clone
-                // into a managed copy and destroy the original rather than leaking one
-                // handle per distinct colour.
-                IntPtr hIcon = bmp.GetHicon();
-                try
-                {
-                    using (var temp = Icon.FromHandle(hIcon))
-                    {
-                        var made = (Icon)temp.Clone();
-                        iconCache[color] = made;
-                        return made;
-                    }
-                }
-                finally { DestroyIcon(hIcon); }
-            }
+            return Color.FromArgb(rand.Next(120, 255), rand.Next(120, 255), rand.Next(120, 255));
         }
 
         void BuildMenu()
@@ -301,9 +308,19 @@ namespace PowerTray
 
         void ShowSettings()
         {
-            using (var form = new SettingsForm(AllTargets, IsAutoStartEnabled, SetAutoStart, OnSettingsChanged))
+            using (var form = new SettingsForm(AllTargets, ActivateFromSettings,
+                                              IsAutoStartEnabled, SetAutoStart, OnSettingsChanged))
                 form.ShowDialog();
 
+            lastIndicatorKey = null;
+            UpdateIcon();
+        }
+
+        // No balloon here: the settings list already moves its "(active)" marker, and a
+        // notification would pop up behind the window the user is looking at.
+        void ActivateFromSettings(PowerTarget target)
+        {
+            Power.Activate(target);
             lastIndicatorKey = null;
             UpdateIcon();
         }
@@ -311,6 +328,7 @@ namespace PowerTray
         void OnSettingsChanged()
         {
             ApplyHotkeys();
+            RefreshTheme();      // the theme dropdown lives in the same window
             ReportHotkeyFailures();
         }
 
@@ -323,7 +341,9 @@ namespace PowerTray
         void ExitApp()
         {
             poll.Stop();
+            SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
             hotkeys.Dispose();
+            TrayIcons.Invalidate();
             icon.Visible = false;
             Application.Exit();
         }

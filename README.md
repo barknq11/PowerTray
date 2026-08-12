@@ -6,8 +6,10 @@ Plain C#, WinForms, no dependencies. Compiles with the `csc.exe` that already sh
 
 ## Features
 
-- **Tray icon** with a colored dot showing the active plan at a glance, updated live even when you change plans from Windows Settings
-  - Balanced = blue, High performance = red, Power saver = green, Ultimate Performance = purple, custom plans get a hashed color
+- **Tray icon** — a colored bolt showing the active plan at a glance, updated live even when you change plans from Windows Settings
+  - Balanced = blue, High performance = red, Power saver = green, Ultimate Performance = violet, custom plans get a hashed color
+- **Dark mode** that follows Windows automatically, with a Light/Dark override if you want it to disagree
+- **Sharp on scaled displays** — DPI-aware, and it uses the actual Windows UI font rather than the WinForms default from 1998
 - **Right-click** the icon for the full plan list and menu
 - **`Ctrl+Alt+P`** cycles to the next plan from anywhere in Windows
 - **Per-plan hotkeys** — bind any combination to any specific plan in Settings
@@ -66,6 +68,9 @@ A hotkey needs at least one of Ctrl, Alt or Shift, otherwise it would swallow th
 | `Hotkeys.cs` | Global hotkey registration |
 | `SettingsForm.cs` | Settings window |
 | `Updater.cs` | Background version check |
+| `Theme.cs` | Light/dark palette and menu rendering |
+| `TrayIcons.cs` | Draws the tray bolt |
+| `PowerTray.manifest` | DPI awareness and common controls v6 |
 | `build.bat` | Rebuild script |
 | `make-icon.ps1` | Generates `PowerTray.ico` from code |
 | `tests\run-tests.bat` | Self-test against the live machine |

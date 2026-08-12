@@ -1,5 +1,5 @@
 # Generates PowerTray.ico (16/32/48/256) from code, so the asset is reproducible.
-# Design: IEC power glyph, white on a dark rounded square.
+# Design: amber bolt on a dark rounded tile, matching the tray icon.
 # Run:  powershell -ExecutionPolicy Bypass -File make-icon.ps1
 
 Add-Type -AssemblyName System.Drawing
@@ -25,17 +25,20 @@ function New-IconBitmap([int]$S) {
     $bg = New-Object Drawing.SolidBrush([Drawing.Color]::FromArgb(255, 31, 42, 55))
     $g.FillPath($bg, $path)
 
-    # power glyph: broken ring + vertical bar through the gap
-    $pen = New-Object Drawing.Pen([Drawing.Color]::White, (6.0 * $k))
-    $pen.StartCap = 'Round'
-    $pen.EndCap = 'Round'
-    $cx = 32.0 * $k
-    $cy = 34.0 * $k
-    $rad = 18.0 * $k
-    $g.DrawArc($pen, ($cx - $rad), ($cy - $rad), ($rad * 2), ($rad * 2), -55, 290)
-    $g.DrawLine($pen, $cx, (11.0 * $k), $cx, (31.0 * $k))
+    # Bolt, geometrically identical to the one TrayIcons.cs draws, so the taskbar
+    # icon and the tray icon read as the same app rather than two different ones.
+    $pts = [Drawing.PointF[]] @(
+        (New-Object Drawing.PointF((37.0 * $k), (11.0 * $k))),
+        (New-Object Drawing.PointF((16.0 * $k), (34.0 * $k))),
+        (New-Object Drawing.PointF((29.0 * $k), (34.0 * $k))),
+        (New-Object Drawing.PointF((25.0 * $k), (53.0 * $k))),
+        (New-Object Drawing.PointF((48.0 * $k), (29.0 * $k))),
+        (New-Object Drawing.PointF((34.0 * $k), (29.0 * $k)))
+    )
+    $bolt = New-Object Drawing.SolidBrush([Drawing.Color]::FromArgb(255, 255, 200, 61))
+    $g.FillPolygon($bolt, $pts)
 
-    $pen.Dispose(); $bg.Dispose(); $path.Dispose(); $g.Dispose()
+    $bolt.Dispose(); $bg.Dispose(); $path.Dispose(); $g.Dispose()
     return $bmp
 }
 

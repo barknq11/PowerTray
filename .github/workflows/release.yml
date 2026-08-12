@@ -22,8 +22,9 @@ jobs:
           "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
           /nologo /target:winexe /out:PowerTray.exe
           /win32icon:PowerTray.ico
+          /win32manifest:PowerTray.manifest
           /reference:System.dll,System.Windows.Forms.dll,System.Drawing.dll
-          Program.cs
+          *.cs
 
       - name: Verify output
         shell: powershell
