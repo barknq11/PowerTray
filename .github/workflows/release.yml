@@ -39,8 +39,16 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $tag = $env:GITHUB_REF_NAME
+
+          # Re-pushing a tag should reproduce the release cleanly rather than failing
+          # on "already exists", so clear anything already sitting on this tag first.
+          gh release delete $tag --yes 2>&1 | Out-Null
+          $global:LASTEXITCODE = 0
+
           $hash = (Get-FileHash PowerTray.exe -Algorithm SHA256).Hash
           $notes = "Download ``PowerTray.exe`` below and run it. No installer, no dependencies.`n`n" +
                    "Built from ``$env:GITHUB_SHA`` by GitHub Actions.`n`n" +
                    "SHA256: ``$hash``"
-          gh release create $tag PowerTray.exe --title "PowerTray $tag" --notes $notes
+          # --latest is what points /releases/latest/download/... at this build,
+          # which is the link the README download button uses.
+          gh release create $tag PowerTray.exe --title "PowerTray $tag" --notes $notes --latest
