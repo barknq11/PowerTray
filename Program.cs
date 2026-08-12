@@ -1,19 +1,37 @@
 using System;
 using System.Drawing;
 using System.Collections.Generic;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using Microsoft.Win32;
+
+[assembly: AssemblyTitle("PowerTray")]
+[assembly: AssemblyDescription("Switch Windows power plans from the system tray")]
+[assembly: AssemblyProduct("PowerTray")]
+[assembly: AssemblyVersion("1.1.0.0")]
+[assembly: AssemblyFileVersion("1.1.0.0")]
 
 namespace PowerTray
 {
     static class Program
     {
+        public const string Version = "1.1.0";
+
         [STAThread]
         static void Main()
         {
-            Application.EnableVisualStyles();
-            Application.Run(new TrayApp());
+            // A second copy would stack another tray icon and silently lose the race
+            // for the hotkey, so the instance already running wins and this one leaves.
+            bool isFirstInstance;
+            using (var mutex = new System.Threading.Mutex(true, @"Local\PowerTray.SingleInstance", out isFirstInstance))
+            {
+                if (!isFirstInstance) return;
+
+                Application.EnableVisualStyles();
+                Application.Run(new TrayApp());
+                GC.KeepAlive(mutex);
+            }
         }
     }
 
@@ -29,7 +47,9 @@ namespace PowerTray
             this.getPlans = getPlans;
             this.setActive = setActive;
 
-            Text = "PowerTray";
+            Text = "PowerTray " + Program.Version;
+            try { Icon = System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath); }
+            catch { }
             Width = 320;
             Height = 260;
             StartPosition = FormStartPosition.CenterScreen;
@@ -99,6 +119,8 @@ namespace PowerTray
         readonly NotifyIcon icon;
         readonly ContextMenuStrip menu;
         readonly HotkeyWindow hotkeyWindow;
+        readonly Timer poll;
+        string lastActiveGuid;
 
         const int HOTKEY_ID = 1;
         const uint MOD_ALT = 0x1;
@@ -118,7 +140,7 @@ namespace PowerTray
             icon = new NotifyIcon
             {
                 Icon = SystemIcons.Shield,
-                Text = "PowerTray (Ctrl+Alt+P to cycle plans)",
+                Text = "PowerTray " + Program.Version,
                 Visible = true,
                 ContextMenuStrip = menu
             };
@@ -126,10 +148,27 @@ namespace PowerTray
 
             hotkeyWindow = new HotkeyWindow();
             hotkeyWindow.Pressed += CycleNext;
-            RegisterHotKey(hotkeyWindow.Handle, HOTKEY_ID, MOD_CONTROL | MOD_ALT, VK_P);
+            bool hotkeyRegistered = RegisterHotKey(hotkeyWindow.Handle, HOTKEY_ID, MOD_CONTROL | MOD_ALT, VK_P);
+
+            // Autostart stores an absolute path. People download the exe, switch
+            // autostart on, then move the file somewhere permanent - which leaves a
+            // Run entry pointing at nothing. Rewriting it on launch keeps it honest.
+            if (IsAutoStartEnabled()) SetAutoStart(true);
 
             BuildMenu();
             UpdateIcon();
+
+            // The active plan can change from Settings, an OEM utility, or a scheduled
+            // task. Nothing notifies us, so without polling the coloured dot quietly
+            // goes stale - which defeats the one thing the icon exists to do.
+            poll = new Timer { Interval = 2000 };
+            poll.Tick += (s, e) => UpdateIcon();
+            poll.Start();
+
+            if (!hotkeyRegistered)
+                icon.ShowBalloonTip(5000, "PowerTray",
+                    "Ctrl+Alt+P is already claimed by another app, so cycling is unavailable. "
+                    + "Everything else works normally.", ToolTipIcon.Warning);
         }
 
         void CycleNext()
@@ -152,11 +191,21 @@ namespace PowerTray
 
         readonly Dictionary<Color, Icon> iconCache = new Dictionary<Color, Icon>();
 
+        // Called every 2 seconds, so do the cheap check first: one P/Invoke for the
+        // active GUID, and only enumerate every plan when it has actually changed.
         void UpdateIcon()
         {
-            var active = GetPlans().Find(p => p.Active);
-            if (active != null)
-                icon.Icon = GetIcon(ColorForPlan(active));
+            string active = GetActiveGuid().ToString();
+            if (active == lastActiveGuid) return;
+            lastActiveGuid = active;
+
+            var plan = GetPlans().Find(p => string.Equals(p.Guid, active, StringComparison.OrdinalIgnoreCase));
+            if (plan == null) return;
+
+            icon.Icon = GetIcon(ColorForPlan(plan));
+
+            string tip = "PowerTray - " + plan.Name;
+            icon.Text = tip.Length > 62 ? tip.Substring(0, 62) : tip;
         }
 
         Icon GetIcon(Color c)
@@ -174,11 +223,25 @@ namespace PowerTray
                     using (var pen = new Pen(Color.Black))
                         g.DrawEllipse(pen, 1, 1, 13, 13);
                 }
-                var made = Icon.FromHandle(bmp.GetHicon());
-                iconCache[c] = made;
-                return made;
+                // Icon.FromHandle does not take ownership of the GDI handle, so clone
+                // into a managed copy and destroy the original rather than leaking one
+                // handle per distinct plan colour.
+                IntPtr hIcon = bmp.GetHicon();
+                try
+                {
+                    using (var temp = Icon.FromHandle(hIcon))
+                    {
+                        var made = (Icon)temp.Clone();
+                        iconCache[c] = made;
+                        return made;
+                    }
+                }
+                finally { DestroyIcon(hIcon); }
             }
         }
+
+        [DllImport("user32.dll")]
+        static extern bool DestroyIcon(IntPtr hIcon);
 
         // known scheme GUIDs are fixed on every Windows install; anything else gets a color hashed from its GUID
         Color ColorForPlan(Plan p)
@@ -188,6 +251,7 @@ namespace PowerTray
                 case "381b4222-f694-41f0-9685-ff5bb260df2e": return Color.DodgerBlue;   // Balanced
                 case "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c": return Color.Crimson;      // High performance
                 case "a1841308-3541-4fab-bc81-f71556f20b4a": return Color.SeaGreen;     // Power saver
+                case "80c5d2a2-a757-4aaf-a446-d8b3c15045ef": return Color.MediumOrchid; // Ultimate Performance
                 default:
                     var rand = new Random(p.Guid.GetHashCode());
                     return Color.FromArgb(rand.Next(80, 220), rand.Next(80, 220), rand.Next(80, 220));
@@ -207,10 +271,10 @@ namespace PowerTray
                 };
                 item.Click += (s, e) =>
                 {
-                    var g = (string)((ToolStripMenuItem)s).Tag;
-                    SetActive(g);
+                    var clicked = (ToolStripMenuItem)s;
+                    SetActive((string)clicked.Tag);
                     UpdateIcon();
-                    icon.ShowBalloonTip(1500, "PowerTray", "Switched power plan.", ToolTipIcon.Info);
+                    icon.ShowBalloonTip(1500, "PowerTray", "Switched to " + clicked.Text, ToolTipIcon.Info);
                 };
                 menu.Items.Add(item);
             }
@@ -227,6 +291,7 @@ namespace PowerTray
             var exit = new ToolStripMenuItem("Exit");
             exit.Click += (s, e) =>
             {
+                poll.Stop();
                 UnregisterHotKey(hotkeyWindow.Handle, HOTKEY_ID);
                 icon.Visible = false;
                 Application.Exit();
@@ -251,14 +316,18 @@ namespace PowerTray
         [DllImport("kernel32.dll")]
         static extern IntPtr LocalFree(IntPtr hMem);
 
+        Guid GetActiveGuid()
+        {
+            IntPtr activePtr;
+            if (PowerGetActiveScheme(IntPtr.Zero, out activePtr) != 0) return Guid.Empty;
+            try { return (Guid)Marshal.PtrToStructure(activePtr, typeof(Guid)); }
+            finally { LocalFree(activePtr); }
+        }
+
         List<Plan> GetPlans()
         {
             var plans = new List<Plan>();
-
-            IntPtr activePtr;
-            PowerGetActiveScheme(IntPtr.Zero, out activePtr);
-            Guid activeGuid = (Guid)Marshal.PtrToStructure(activePtr, typeof(Guid));
-            LocalFree(activePtr);
+            Guid activeGuid = GetActiveGuid();
 
             uint index = 0;
             while (true)
@@ -312,8 +381,11 @@ namespace PowerTray
 
         void SetAutoStart(bool enable)
         {
-            using (var key = Registry.CurrentUser.OpenSubKey(RunKeyPath, true))
+            // CreateSubKey rather than OpenSubKey: the latter returns null when the key
+            // is absent, which would throw on a machine with an unusual Run hive.
+            using (var key = Registry.CurrentUser.CreateSubKey(RunKeyPath))
             {
+                if (key == null) return;
                 if (enable)
                     key.SetValue(RunValueName, "\"" + Application.ExecutablePath + "\"");
                 else

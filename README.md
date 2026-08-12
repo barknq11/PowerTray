@@ -18,9 +18,15 @@ Single C# file, ~320 lines, WinForms. Compiles with the `csc.exe` that already s
 
 **[⬇ Download PowerTray.exe](https://github.com/barknq11/PowerTray/releases/latest/download/PowerTray.exe)**
 
-That's it — a single 13 KB file. Run it and it lands in your tray. No installer, no cloning, no dependencies.
+That's it — a single 36 KB file. Run it and it lands in your tray. No installer, no cloning, no dependencies.
 
 Requires Windows 7 or newer. .NET Framework 4.x is already present on every modern Windows install.
+
+### "Windows protected your PC"
+
+PowerTray isn't code-signed — certificates cost a few hundred dollars a year, which is hard to justify for a utility this small. So SmartScreen will warn you the first time. Click **More info**, then **Run anyway**.
+
+If you'd rather not take that on faith, `build.bat` compiles the exe from the source in this repo in about a second, and you can compare the result to the released binary.
 
 ## Build from source
 
@@ -51,6 +57,8 @@ Autostart is stored as a value under `HKCU\Software\Microsoft\Windows\CurrentVer
 | --- | --- |
 | `Program.cs` | The entire app |
 | `build.bat` | Rebuild script |
+| `make-icon.ps1` | Generates `PowerTray.ico` from code |
+| `PowerTray.ico` | App icon, 16/32/48/256 px |
 | `PowerTray.exe` | Prebuilt binary |
 
 ## Notes
