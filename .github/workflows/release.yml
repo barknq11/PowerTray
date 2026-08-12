@@ -42,9 +42,18 @@ jobs:
           $tag = $env:GITHUB_REF_NAME
 
           # Re-pushing a tag should reproduce the release cleanly rather than failing
-          # on "already exists", so clear anything already sitting on this tag first.
-          gh release delete $tag --yes 2>&1 | Out-Null
+          # on "already exists". Check explicitly rather than deleting and ignoring the
+          # error: Actions runs PowerShell with ErrorActionPreference=Stop, and a native
+          # command's stderr becomes a terminating error the moment it is redirected.
+          $ErrorActionPreference = 'Continue'
+          gh release view $tag *> $null
+          $exists = ($LASTEXITCODE -eq 0)
+          if ($exists) {
+            Write-Host "Replacing the existing $tag release"
+            gh release delete $tag --yes *> $null
+          }
           $global:LASTEXITCODE = 0
+          $ErrorActionPreference = 'Stop'
 
           $hash = (Get-FileHash PowerTray.exe -Algorithm SHA256).Hash
           $notes = "Download ``PowerTray.exe`` below and run it. No installer, no dependencies.`n`n" +
