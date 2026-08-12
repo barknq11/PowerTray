@@ -1,0 +1,46 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # csc.exe ships with Windows itself, so there is no SDK to set up.
+      - name: Compile
+        shell: cmd
+        run: >
+          "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          /nologo /target:winexe /out:PowerTray.exe
+          /win32icon:PowerTray.ico
+          /reference:System.dll,System.Windows.Forms.dll,System.Drawing.dll
+          Program.cs
+
+      - name: Verify output
+        shell: powershell
+        run: |
+          if (-not (Test-Path PowerTray.exe)) { throw "PowerTray.exe was not produced" }
+          $f = Get-Item PowerTray.exe
+          Write-Host ("Built {0} bytes, version {1}" -f $f.Length, $f.VersionInfo.FileVersion)
+
+      # gh is preinstalled on GitHub runners, so no third-party action is needed.
+      - name: Publish release
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          $hash = (Get-FileHash PowerTray.exe -Algorithm SHA256).Hash
+          $notes = "Download ``PowerTray.exe`` below and run it. No installer, no dependencies.`n`n" +
+                   "Built from ``$env:GITHUB_SHA`` by GitHub Actions.`n`n" +
+                   "SHA256: ``$hash``"
+          gh release create $tag PowerTray.exe --title "PowerTray $tag" --notes $notes
