@@ -14,25 +14,25 @@ Single C# file, ~320 lines, WinForms. Compiles with the `csc.exe` that already s
 - **Start with Windows** toggle in the tray menu (off by default)
 - Uses the native `powrprof.dll` API directly — no shelling out to `powercfg`, no text parsing, no process spawn
 
-## Install on a new machine
+## Download
+
+**[⬇ Download PowerTray.exe](https://github.com/barknq11/PowerTray/releases/latest/download/PowerTray.exe)**
+
+That's it — a single 13 KB file. Run it and it lands in your tray. No installer, no cloning, no dependencies.
 
 Requires Windows 7 or newer. .NET Framework 4.x is already present on every modern Windows install.
+
+## Build from source
+
+Only if you want to change something:
 
 ```
 git clone https://github.com/barknq11/PowerTray.git
 cd PowerTray
-PowerTray.exe
-```
-
-The prebuilt `PowerTray.exe` is committed, so you can run it straight away. If you'd rather build it yourself:
-
-```
 build.bat
 ```
 
-That invokes `C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe` and produces `PowerTray.exe` in about a second.
-
-Not a git user? Just download the ZIP from the green **Code** button and run the exe.
+`build.bat` invokes `C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe` and produces `PowerTray.exe` in about a second. No .NET SDK, no Visual Studio.
 
 ## Usage
 
@@ -52,7 +52,6 @@ Autostart is stored as a value under `HKCU\Software\Microsoft\Windows\CurrentVer
 | `Program.cs` | The entire app |
 | `build.bat` | Rebuild script |
 | `PowerTray.exe` | Prebuilt binary |
-| `handoff.md` | Development notes and history |
 
 ## Notes
 
