@@ -62,6 +62,30 @@ namespace PowerTray
             }
         }
 
+        // Walks the control tree, recording names and flagging anything whose rectangle
+        // escapes the form's client area once mapped back to form coordinates.
+        static void Walk(Control parent, System.Drawing.Rectangle client, ref int count,
+                         System.Text.StringBuilder offenders, System.Collections.Generic.List<string> labels)
+        {
+            foreach (Control c in parent.Controls)
+            {
+                count++;
+                if (!string.IsNullOrEmpty(c.Text)) labels.Add(c.Text);
+
+                if (c is Button || c is LinkLabel || c is RadioButton || c is CheckBox)
+                {
+                    System.Drawing.Point tl = c.Parent.PointToScreen(c.Location);
+                    System.Drawing.Point origin = ((Form)c.TopLevelControl).PointToScreen(System.Drawing.Point.Empty);
+                    var box = new System.Drawing.Rectangle(tl.X - origin.X, tl.Y - origin.Y, c.Width, c.Height);
+
+                    if (!client.Contains(box))
+                        offenders.Append("[" + c.Text + " at " + box + "]");
+                }
+
+                if (c.Controls.Count > 0) Walk(c, client, ref count, offenders, labels);
+            }
+        }
+
         static void Check(string label, bool ok, string detail)
         {
             Console.WriteLine((ok ? "  PASS  " : "  FAIL  ") + label + (detail == null ? "" : "  ->  " + detail));
@@ -75,16 +99,16 @@ namespace PowerTray
             var schemes = Power.GetSchemes();
             Check("schemes enumerate", schemes.Count > 0, schemes.Count + " found");
 
-            bool named = true, activeCount = false;
+            bool namesOk = true, activeCount = false;
             int actives = 0;
             foreach (var s in schemes)
             {
-                if (string.IsNullOrEmpty(s.Name) || s.Name == s.Id.ToString("D")) named = false;
+                if (string.IsNullOrEmpty(s.Name) || s.Name == s.Id.ToString("D")) namesOk = false;
                 if (s.Active) actives++;
                 Console.WriteLine("         " + s.Name + "   key=" + s.Key + (s.Active ? "  [active]" : ""));
             }
             activeCount = actives == 1;
-            Check("friendly names resolve", named, null);
+            Check("friendly names resolve", namesOk, null);
             Check("exactly one active scheme", activeCount, actives + " active");
 
             Check("battery detected", Power.HasBattery == false, "HasBattery=" + Power.HasBattery + " (desktop expected)");
@@ -160,8 +184,41 @@ namespace PowerTray
                     delegate(bool v) { autostart = v; },
                     delegate { }))
                 {
-                    form.CreateControl();
-                    Check("constructs without throwing", true, form.Controls.Count + " controls");
+                    form.Show();          // force a real layout pass
+                    form.Visible = false;
+
+                    int total = 0;
+                    var offenders = new System.Text.StringBuilder();
+                    var labels = new System.Collections.Generic.List<string>();
+                    Walk(form, form.ClientRectangle, ref total, offenders, labels);
+
+                    Check("constructs without throwing", true, total + " controls");
+
+                    // The v2.1.0 bug: assigning Font after ClientSize let AutoScaleMode
+                    // rescale the layout and push the Close button and link off the form
+                    // entirely. Nothing in the old suite noticed.
+                    Check("every control lies inside the form", offenders.Length == 0,
+                          offenders.Length == 0 ? null : offenders.ToString());
+
+                    Check("close button present", labels.Contains("Close"), null);
+                    Check("releases link present", labels.Contains("Releases and source"), null);
+                    Check("theme options present",
+                          labels.Contains("Auto") && labels.Contains("Light") && labels.Contains("Dark"), null);
+                    Check("activate button present", labels.Contains("Activate"), null);
+
+                    // Negative control. An assertion that can only ever pass proves
+                    // nothing, so squeeze the form below its minimum and confirm the
+                    // detector actually reports the controls that fall outside.
+                    form.MinimumSize = new System.Drawing.Size(1, 1);
+                    form.ClientSize = new System.Drawing.Size(200, 160);
+                    Application.DoEvents();
+
+                    int ignored = 0;
+                    var shouldFind = new System.Text.StringBuilder();
+                    Walk(form, form.ClientRectangle, ref ignored, shouldFind,
+                         new System.Collections.Generic.List<string>());
+                    Check("detector reports overflow when the form is too small",
+                          shouldFind.Length > 0, shouldFind.Length > 0 ? "caught overflow" : "detector is blind");
                 }
             }
             catch (Exception ex)

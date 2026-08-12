@@ -80,6 +80,26 @@ namespace PowerTray
             set { SetString("Theme", value.ToString()); }
         }
 
+        // Remembering the size is the difference between "resizable" and "resizable but
+        // it forgets every time", which is the more annoying of the two.
+        public static System.Drawing.Size WindowSize
+        {
+            get
+            {
+                string raw = GetString("WindowSize", null);
+                if (raw != null)
+                {
+                    string[] parts = raw.Split(',');
+                    int w, h;
+                    if (parts.Length == 2 && int.TryParse(parts[0], out w) && int.TryParse(parts[1], out h)
+                        && w >= 430 && h >= 520 && w <= 4000 && h <= 4000)
+                        return new System.Drawing.Size(w, h);
+                }
+                return new System.Drawing.Size(460, 560);
+            }
+            set { SetString("WindowSize", value.Width + "," + value.Height); }
+        }
+
         public static DateTime LastUpdateCheck
         {
             get

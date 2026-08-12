@@ -56,15 +56,21 @@ namespace PowerTray
         readonly Action<bool> setAutoStart;
         readonly Action onChanged;
 
-        readonly ListView list;
-        readonly HotkeyBox capture;
-        readonly Button activate;
-        readonly Button assign;
-        readonly Button clear;
-        readonly ComboBox themeBox;
-        readonly CheckBox autoStartBox;
-        readonly CheckBox cycleBox;
-        readonly CheckBox updateBox;
+        readonly ListView list = new ListView();
+        readonly HotkeyBox capture = new HotkeyBox();
+        readonly Button activate = new Button();
+        readonly Button assign = new Button();
+        readonly Button clear = new Button();
+        readonly Button close = new Button();
+        readonly CheckBox autoStartBox = new CheckBox();
+        readonly CheckBox cycleBox = new CheckBox();
+        readonly CheckBox updateBox = new CheckBox();
+        readonly RadioButton themeAuto = new RadioButton();
+        readonly RadioButton themeLight = new RadioButton();
+        readonly RadioButton themeDark = new RadioButton();
+        readonly LinkLabel link = new LinkLabel();
+
+        bool suppressThemeEvents;
 
         public SettingsForm(Func<List<PowerTarget>> getTargets, Action<PowerTarget> activateTarget,
                             Func<bool> getAutoStart, Action<bool> setAutoStart, Action onChanged)
@@ -75,168 +81,291 @@ namespace PowerTray
             this.setAutoStart = setAutoStart;
             this.onChanged = onChanged;
 
-            Text = "PowerTray settings";
+            // Font must be set before any control exists. Assigning it afterwards makes
+            // AutoScaleMode.Font rescale the whole layout, which is what pushed the
+            // Close button and link off the bottom of the previous build.
+            AutoScaleMode = AutoScaleMode.Dpi;
             Font = Theme.UiFont;
-            ClientSize = new Size(440, 474);
-            FormBorderStyle = FormBorderStyle.FixedDialog;
-            MaximizeBox = false;
-            MinimizeBox = false;
+
+            Text = "PowerTray settings";
+            FormBorderStyle = FormBorderStyle.Sizable;
+            MinimumSize = new Size(430, 520);
             StartPosition = FormStartPosition.CenterScreen;
+            ClientSize = Config.WindowSize;
             try { Icon = System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath); }
             catch { }
 
-            Controls.Add(Caption("Select a plan to switch to it, or give it a hotkey.", 12, 10, false));
-
-            list = new ListView
-            {
-                Location = new Point(12, 32),
-                Size = new Size(416, 154),
-                View = View.Details,
-                FullRowSelect = true,
-                MultiSelect = false,
-                HideSelection = false
-            };
-            list.SelectedIndexChanged += (s, e) => SyncButtons();
-            list.DoubleClick += (s, e) => ActivateSelection();
-            list.DrawColumnHeader += OnDrawColumnHeader;
-            list.DrawItem += (s, e) => e.DrawDefault = false;
-            list.DrawSubItem += OnDrawSubItem;
-            Controls.Add(list);
-
-            // Switching must not depend on hotkeys working. Some people never want
-            // global bindings, and a combination another app owns cannot be registered.
-            activate = new Button
-            {
-                Text = "Activate",
-                Location = new Point(12, 192),
-                Size = new Size(110, 27)
-            };
-            activate.Click += (s, e) => ActivateSelection();
-            Controls.Add(activate);
-
-            Controls.Add(Caption("or double-click a plan", 130, 198, true));
-            Controls.Add(Caption("Hotkey for the selected plan", 12, 232, false));
-
-            capture = new HotkeyBox { Location = new Point(12, 253), Size = new Size(244, 23) };
-            capture.Captured += SyncButtons;
-            Controls.Add(capture);
-
-            assign = new Button { Text = "Assign", Location = new Point(264, 252), Size = new Size(78, 25) };
-            assign.Click += (s, e) => AssignToSelection();
-            Controls.Add(assign);
-
-            clear = new Button { Text = "Clear", Location = new Point(350, 252), Size = new Size(78, 25) };
-            clear.Click += (s, e) => ClearSelection();
-            Controls.Add(clear);
-
-            Controls.Add(Caption("A binding needs at least one of Ctrl, Alt or Shift.", 12, 281, true));
-
-            autoStartBox = new CheckBox
-            {
-                Text = "Start with Windows",
-                Location = new Point(12, 306),
-                Size = new Size(416, 22),
-                Checked = getAutoStart()
-            };
-            autoStartBox.CheckedChanged += (s, e) => setAutoStart(autoStartBox.Checked);
-            Controls.Add(autoStartBox);
-
-            cycleBox = new CheckBox
-            {
-                Text = "Cycle through plans with Ctrl+Alt+P",
-                Location = new Point(12, 330),
-                Size = new Size(416, 22),
-                Checked = Config.CycleHotkeyEnabled
-            };
-            cycleBox.CheckedChanged += (s, e) =>
-            {
-                Config.CycleHotkeyEnabled = cycleBox.Checked;
-                onChanged();
-            };
-            Controls.Add(cycleBox);
-
-            updateBox = new CheckBox
-            {
-                Text = "Check GitHub for new versions at startup",
-                Location = new Point(12, 354),
-                Size = new Size(416, 22),
-                Checked = Config.CheckForUpdates
-            };
-            updateBox.CheckedChanged += (s, e) => Config.CheckForUpdates = updateBox.Checked;
-            Controls.Add(updateBox);
-
-            Controls.Add(Caption("Appearance", 12, 383, false));
-
-            themeBox = new ComboBox
-            {
-                Location = new Point(106, 380),
-                Size = new Size(130, 23),
-                DropDownStyle = ComboBoxStyle.DropDownList,
-                FlatStyle = FlatStyle.Flat
-            };
-            themeBox.Items.AddRange(new object[] { "Auto (match Windows)", "Light", "Dark" });
-            themeBox.SelectedIndex = (int)Config.Theme;
-            themeBox.SelectedIndexChanged += (s, e) =>
-            {
-                Config.Theme = (ThemeMode)themeBox.SelectedIndex;
-                ApplyTheme();
-                onChanged();
-            };
-            Controls.Add(themeBox);
-
-            Controls.Add(Caption("Settings live in HKCU\\Software\\PowerTray. Nothing is written to disk.", 12, 410, true));
-            Controls.Add(Caption("PowerTray " + Program.Version, 12, 438, false));
-
-            var link = new LinkLabel
-            {
-                Text = "Releases and source",
-                Location = new Point(140, 438),
-                Size = new Size(160, 18)
-            };
-            link.LinkClicked += (s, e) =>
-            {
-                try { System.Diagnostics.Process.Start(Updater.ReleasesPage); }
-                catch { }
-            };
-            Controls.Add(link);
-
-            var close = new Button
-            {
-                Text = "Close",
-                Location = new Point(350, 434),
-                Size = new Size(78, 26),
-                DialogResult = DialogResult.OK
-            };
-            close.Click += (s, e) => Close();
-            Controls.Add(close);
-            AcceptButton = close;
+            Controls.Add(BuildLayout());
 
             ApplyTheme();
             Refresh_();
         }
 
-        // Tag marks the muted secondary labels so re-theming can tell them apart from
-        // primary text without keeping a separate list of references.
-        static Label Caption(string text, int x, int y, bool muted)
+        static Label Caption(string text, bool muted)
         {
             return new Label
             {
                 Text = text,
-                Location = new Point(x, y),
-                Size = new Size(x == 12 ? 416 : 180, 18),
-                AutoSize = false,
+                AutoSize = true,
+                Margin = new Padding(3, 6, 3, 3),
                 Tag = muted ? "muted" : null
             };
         }
 
+        static TableLayoutPanel Stack(int rows)
+        {
+            var t = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = rows,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                Margin = Padding.Empty
+            };
+            t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+            return t;
+        }
+
+        static FlowLayoutPanel Row()
+        {
+            return new FlowLayoutPanel
+            {
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = false,
+                Margin = new Padding(0, 2, 0, 2),
+                Dock = DockStyle.Fill
+            };
+        }
+
+        // Docked/auto-sizing layout rather than absolute coordinates: the window is
+        // resizable now, and hardcoded pixel positions break the moment the font or
+        // the DPI differs from whatever the numbers were written against.
+        Control BuildLayout()
+        {
+            var root = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 3,
+                Padding = new Padding(12, 10, 12, 10)
+            };
+            root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            root.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));   // list absorbs resizing
+            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+            root.Controls.Add(Caption("Select a plan to switch to it, or give it a hotkey.", false), 0, 0);
+
+            list.Dock = DockStyle.Fill;
+            list.View = View.Details;
+            list.FullRowSelect = true;
+            list.MultiSelect = false;
+            list.HideSelection = false;
+            list.Margin = new Padding(0, 4, 0, 6);
+            list.SelectedIndexChanged += (s, e) => SyncButtons();
+            list.DoubleClick += (s, e) => ActivateSelection();
+            list.DrawColumnHeader += OnDrawColumnHeader;
+            list.DrawItem += (s, e) => e.DrawDefault = false;
+            list.DrawSubItem += OnDrawSubItem;
+            list.Resize += (s, e) => FitColumns();
+            root.Controls.Add(list, 0, 1);
+
+            root.Controls.Add(BuildBottom(), 0, 2);
+            return root;
+        }
+
+        Control BuildBottom()
+        {
+            var stack = Stack(9);
+
+            // Switching must not depend on hotkeys working. Some people never want
+            // global bindings, and a combination another app owns cannot be registered.
+            activate.Text = "Activate";
+            activate.AutoSize = true;
+            activate.Padding = new Padding(10, 3, 10, 3);
+            activate.Click += (s, e) => ActivateSelection();
+
+            var activateRow = Row();
+            activateRow.Controls.Add(activate);
+            activateRow.Controls.Add(Caption("or double-click a plan", true));
+            stack.Controls.Add(activateRow, 0, 0);
+
+            stack.Controls.Add(Caption("Hotkey for the selected plan", false), 0, 1);
+
+            var hotkeyRow = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 3,
+                RowCount = 1,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                Margin = new Padding(0, 2, 0, 2)
+            };
+            hotkeyRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+            hotkeyRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            hotkeyRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+
+            capture.Dock = DockStyle.Fill;
+            capture.Captured += SyncButtons;
+            hotkeyRow.Controls.Add(capture, 0, 0);
+
+            assign.Text = "Assign";
+            assign.AutoSize = true;
+            assign.Padding = new Padding(10, 2, 10, 2);
+            assign.Click += (s, e) => AssignToSelection();
+            hotkeyRow.Controls.Add(assign, 1, 0);
+
+            clear.Text = "Clear";
+            clear.AutoSize = true;
+            clear.Padding = new Padding(10, 2, 10, 2);
+            clear.Click += (s, e) => ClearSelection();
+            hotkeyRow.Controls.Add(clear, 2, 0);
+            stack.Controls.Add(hotkeyRow, 0, 2);
+
+            stack.Controls.Add(Caption("A binding needs at least one of Ctrl, Alt or Shift.", true), 0, 3);
+
+            autoStartBox.Text = "Start with Windows";
+            autoStartBox.AutoSize = true;
+            autoStartBox.Checked = getAutoStart();
+            autoStartBox.CheckedChanged += (s, e) => setAutoStart(autoStartBox.Checked);
+            stack.Controls.Add(autoStartBox, 0, 4);
+
+            cycleBox.Text = "Cycle through plans with Ctrl+Alt+P";
+            cycleBox.AutoSize = true;
+            cycleBox.Checked = Config.CycleHotkeyEnabled;
+            cycleBox.CheckedChanged += (s, e) =>
+            {
+                Config.CycleHotkeyEnabled = cycleBox.Checked;
+                onChanged();
+            };
+            stack.Controls.Add(cycleBox, 0, 5);
+
+            updateBox.Text = "Check GitHub for new versions at startup";
+            updateBox.AutoSize = true;
+            updateBox.Checked = Config.CheckForUpdates;
+            updateBox.CheckedChanged += (s, e) => Config.CheckForUpdates = updateBox.Checked;
+            stack.Controls.Add(updateBox, 0, 6);
+
+            stack.Controls.Add(BuildThemeRow(), 0, 7);
+            stack.Controls.Add(BuildFooter(), 0, 8);
+            return stack;
+        }
+
+        // Radio buttons rather than a ComboBox: a WinForms combo keeps drawing its drop
+        // button in system colours no matter what you set, so it stays a light chip on a
+        // dark form. Three options do not need a dropdown anyway.
+        Control BuildThemeRow()
+        {
+            var row = Row();
+            row.Controls.Add(Caption("Appearance", false));
+
+            ThemeMode mode = Config.Theme;
+            SetupThemeOption(themeAuto, "Auto", ThemeMode.Auto, mode);
+            SetupThemeOption(themeLight, "Light", ThemeMode.Light, mode);
+            SetupThemeOption(themeDark, "Dark", ThemeMode.Dark, mode);
+
+            row.Controls.Add(themeAuto);
+            row.Controls.Add(themeLight);
+            row.Controls.Add(themeDark);
+            return row;
+        }
+
+        void SetupThemeOption(RadioButton button, string text, ThemeMode mode, ThemeMode active)
+        {
+            button.Text = text;
+            button.AutoSize = true;
+            button.Margin = new Padding(10, 6, 0, 3);
+            button.Checked = mode == active;
+            button.CheckedChanged += (s, e) =>
+            {
+                if (suppressThemeEvents || !button.Checked) return;
+                Config.Theme = mode;
+                ApplyTheme();
+                onChanged();
+            };
+        }
+
+        Control BuildFooter()
+        {
+            var footer = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 2,
+                RowCount = 2,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                Margin = new Padding(0, 6, 0, 0)
+            };
+            footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+            footer.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+
+            footer.Controls.Add(Caption("Settings live in HKCU\\Software\\PowerTray. Nothing is written to disk.", true), 0, 0);
+
+            var idRow = Row();
+            idRow.Controls.Add(Caption("PowerTray " + Program.Version, false));
+
+            link.Text = "Releases and source";
+            link.AutoSize = true;
+            link.Margin = new Padding(12, 6, 3, 3);
+            link.LinkClicked += (s, e) =>
+            {
+                try { System.Diagnostics.Process.Start(Updater.ReleasesPage); }
+                catch { }
+            };
+            idRow.Controls.Add(link);
+            footer.Controls.Add(idRow, 0, 1);
+
+            close.Text = "Close";
+            close.AutoSize = true;
+            close.Padding = new Padding(14, 3, 14, 3);
+            close.Anchor = AnchorStyles.Right | AnchorStyles.Bottom;
+            close.Click += (s, e) => Close();
+            footer.Controls.Add(close, 1, 1);
+            AcceptButton = close;
+
+            return footer;
+        }
+
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            if (WindowState == FormWindowState.Normal) Config.WindowSize = ClientSize;
+            base.OnFormClosing(e);
+        }
+
+        // Sizes the last column so the header exactly fills the control. Otherwise the
+        // leftover strip past the final column is painted by the system in light colours
+        // and shows up as a white bar in dark mode.
+        void FitColumns()
+        {
+            if (list.Columns.Count == 0) return;
+
+            int hotkey = 130;
+            int type = list.Columns.Count == 3 ? 100 : 0;
+            int plan = list.ClientSize.Width - hotkey - type - 1;
+            if (plan < 120) plan = 120;
+
+            list.Columns[0].Width = plan;
+            if (list.Columns.Count == 3)
+            {
+                list.Columns[1].Width = type;
+                list.Columns[2].Width = hotkey;
+            }
+            else
+            {
+                list.Columns[1].Width = hotkey;
+            }
+        }
+
         void ApplyTheme()
         {
-            Font = Theme.UiFont;
             BackColor = Theme.Window;
             ForeColor = Theme.Text;
             Theme.ApplyTitleBar(Handle);
 
-            foreach (Control control in Controls) StyleControl(control);
+            StyleTree(this);
 
             list.BackColor = Theme.Surface;
             list.ForeColor = Theme.Text;
@@ -247,10 +376,28 @@ namespace PowerTray
             list.OwnerDraw = Theme.Dark;
             Theme.ApplyScrollbars(list.Handle);
             list.Invalidate();
+
+            suppressThemeEvents = true;
+            ThemeMode mode = Config.Theme;
+            themeAuto.Checked = mode == ThemeMode.Auto;
+            themeLight.Checked = mode == ThemeMode.Light;
+            themeDark.Checked = mode == ThemeMode.Dark;
+            suppressThemeEvents = false;
+        }
+
+        void StyleTree(Control parent)
+        {
+            foreach (Control control in parent.Controls)
+            {
+                StyleControl(control);
+                if (control.Controls.Count > 0) StyleTree(control);
+            }
         }
 
         void StyleControl(Control control)
         {
+            if (control == list) return;
+
             var button = control as Button;
             if (button != null)
             {
@@ -280,18 +427,22 @@ namespace PowerTray
                 return;
             }
 
-            if (control is CheckBox)
+            if (control is CheckBox || control is RadioButton)
             {
                 control.BackColor = Color.Transparent;
                 control.ForeColor = Theme.Text;
                 return;
             }
 
-            if (control is TextBox || control is ComboBox)
+            if (control is TextBox)
             {
                 control.BackColor = Theme.Surface;
                 control.ForeColor = Theme.Text;
+                return;
             }
+
+            if (control is TableLayoutPanel || control is FlowLayoutPanel)
+                control.BackColor = Color.Transparent;
         }
 
         void OnDrawColumnHeader(object sender, DrawListViewColumnHeaderEventArgs e)
@@ -349,9 +500,10 @@ namespace PowerTray
             // system and stay light in dark mode unless you call undocumented uxtheme
             // entry points. The column costs one field and themes cleanly.
             list.Columns.Clear();
-            list.Columns.Add("Plan", hasOverlays ? 196 : 286);
-            if (hasOverlays) list.Columns.Add("Type", 90);
-            list.Columns.Add("Hotkey", 122);
+            list.Columns.Add("Plan");
+            if (hasOverlays) list.Columns.Add("Type");
+            list.Columns.Add("Hotkey");
+            FitColumns();
 
             foreach (PowerTarget t in targets)
             {
