@@ -19,7 +19,7 @@ Single C# file, ~320 lines, WinForms. Compiles with the `csc.exe` that already s
 Requires Windows 7 or newer. .NET Framework 4.x is already present on every modern Windows install.
 
 ```
-git clone https://github.com/<YOUR_USERNAME>/PowerTray.git
+git clone https://github.com/barknq11/PowerTray.git
 cd PowerTray
 PowerTray.exe
 ```
